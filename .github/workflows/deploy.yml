@@ -18,8 +18,47 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        # Pinned to commit SHA for supply-chain integrity.
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        # Pinned to commit SHA for supply-chain integrity. v5 runs on Node 24.
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Verify deploy secrets
+        # Fail fast with an actionable message if the SSH credentials are
+        # missing or malformed, instead of letting scp-action fail with a
+        # cryptic "ssh: unable to authenticate ... no supported methods remain".
+        env:
+          AD_SSH_KEY: ${{ secrets.AD_SSH_KEY }}
+          AD_SSH_USER: ${{ secrets.AD_SSH_USER }}
+          AD_SSH_HOST: ${{ secrets.AD_SSH_HOST }}
+          AD_SSH_PASSPHRASE: ${{ secrets.AD_SSH_PASSPHRASE }}
+        run: |
+          set -eu
+          fail() { echo "::error::$1"; exit 1; }
+          [ -n "$AD_SSH_HOST" ] || fail "Secret AD_SSH_HOST is empty. Set it to your Alwaysdata SSH host."
+          [ -n "$AD_SSH_USER" ] || fail "Secret AD_SSH_USER is empty. Set it to your Alwaysdata account name."
+          [ -n "$AD_SSH_KEY" ]  || fail "Secret AD_SSH_KEY is empty. Paste the PRIVATE key (full PEM incl. BEGIN/END lines)."
+          # Write the key to a temp file for format validation (never echo it).
+          umask 077
+          keyfile="$(mktemp)"
+          printf '%s\n' "$AD_SSH_KEY" > "$keyfile"
+          # Accept OpenSSH new-format or PEM (RSA/ECDSA/ED25519) private keys.
+          if ! grep -Eq 'BEGIN (OPENSSH|RSA|EC|DSA) PRIVATE KEY|openssh-key-v1' "$keyfile"; then
+            rm -f "$keyfile"
+            fail "AD_SSH_KEY does not look like a private key. Ensure it is the PRIVATE key (not the public key) and includes the BEGIN/END header."
+          fi
+          # Confirm the key parses WITH the supplied passphrase (non-interactive
+          # via -P, so an encrypted key with a missing/wrong passphrase fails
+          # cleanly here instead of hanging the scp step later). Always pass -P
+          # (empty when no passphrase is configured) to avoid any prompt.
+          if ! ssh-keygen -y -P "$AD_SSH_PASSPHRASE" -f "$keyfile" >/dev/null 2>err.txt; then
+            msg="AD_SSH_KEY could not be read by ssh-keygen."
+            if grep -qi 'passphrase\|incorrect passphrase\|load key' err.txt; then
+              msg="$msg The key is passphrase-protected and AD_SSH_PASSPHRASE is missing or wrong — set it to the correct passphrase (or use an unencrypted key)."
+            fi
+            rm -f "$keyfile" err.txt
+            fail "$msg"
+          fi
+          rm -f "$keyfile" err.txt
+          echo "All SSH deploy secrets present and the private key parses OK."
 
       - name: Prepare deploy bundle
         run: |
