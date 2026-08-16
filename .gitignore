@@ -1,0 +1,10 @@
+# Persisted enquiry submissions (patient PII) — keep out of version control.
+private/enquiries.jsonl
+private/*.log
+
+# Editor / OS noise
+.DS_Store
+Thumbs.db
+*.swp
+.vscode/
+.idea/

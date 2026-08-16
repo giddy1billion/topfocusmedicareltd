@@ -1,0 +1,64 @@
+name: Deploy to Alwaysdata
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-alwaysdata
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy site via SSH
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare deploy bundle
+        run: |
+          mkdir -p bundle
+          # Copy the site files (excluding repo/dev-only artefacts).
+          rsync -a \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='.gitignore' \
+            --exclude='bundle' \
+            ./ bundle/
+
+      - name: Sync files to Alwaysdata
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.AD_SSH_HOST }}
+          port: ${{ secrets.AD_SSH_PORT || 22 }}
+          username: ${{ secrets.AD_SSH_USER }}
+          key: ${{ secrets.AD_SSH_KEY }}
+          passphrase: ${{ secrets.AD_SSH_PASSPHRASE }}
+          source: "bundle/*"
+          target: ${{ vars.AD_REMOTE_PATH || '/home/topfocusmedicareltd/www' }}
+          strip_components: 1
+          overwrite: true
+
+      - name: Ensure permissions on remote
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.AD_SSH_HOST }}
+          port: ${{ secrets.AD_SSH_PORT || 22 }}
+          username: ${{ secrets.AD_SSH_USER }}
+          key: ${{ secrets.AD_SSH_KEY }}
+          passphrase: ${{ secrets.AD_SSH_PASSPHRASE }}
+          script: |
+            REMOTE="${{ vars.AD_REMOTE_PATH || '/home/topfocusmedicareltd/www' }}"
+            cd "$REMOTE" || exit 1
+            # Protect the enquiry data store from direct web access.
+            mkdir -p private
+            chmod 700 private
+            # Make the API readable/executable by the web server.
+            chmod 644 index.html api/enquiry.php private/.htaccess 2>/dev/null || true
+            chmod 755 api 2>/dev/null || true
+            echo "Deployed to $REMOTE at $(date)"
