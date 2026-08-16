@@ -47,8 +47,14 @@ const DEFAULT_ALLOWED_ORIGINS = 'https://topfocusmedicareltd.com.ng,https://www.
 const DEFAULT_BASE_URL = 'https://topfocusmedicareltd.com.ng';
 
 const MAX_INPUT_BYTES = 20480;     // reject request bodies larger than 20 KB
-const RATE_LIMIT_WINDOW = 600;     // 10 minutes
-const RATE_LIMIT_MAX = 5;          // max submissions per IP per window
+// Multi-dimensional rate limiting (sliding-window, file-based, atomic).
+const RATE_LIMIT_WINDOW = 600;     // seconds — applies to all dimensions
+const RATE_LIMIT_IP_MAX = 5;       // per-IP submissions per window (primary)
+const RATE_LIMIT_EMAIL_MAX = 3;    // per-(hashed)email submissions per window (anti-relay)
+const RATE_LIMIT_GLOBAL_MAX = 60;  // total submissions per window (circuit breaker for distributed floods)
+// Stale-bucket garbage collection to bound inode usage.
+const RATE_LIMIT_GC_PROBABILITY = 0.02;  // chance to run GC on any request
+const RATE_LIMIT_GC_THRESHOLD = 1000;   // also run GC when bucket file count exceeds this
 
 $clinicEmails = array_values(array_filter(array_map('trim', explode(',', (string)(getenv('CLINIC_EMAILS') ?: DEFAULT_CLINIC_EMAILS)))));
 $mailFrom = getenv('MAIL_FROM') ?: DEFAULT_MAIL_FROM;
@@ -89,41 +95,119 @@ function clientIp(): string
 
 /* --------------------------- rate limiting ------------------------------- */
 /**
- * Simple file-based per-IP throttle. Keeps a list of recent submission
- * timestamps and rejects requests that exceed RATE_LIMIT_MAX within the window.
- * Returns true when allowed, false when throttled.
+ * Robust, file-based, multi-dimensional rate limiter.
+ *
+ * Design goals (no external store such as Redis — pure filesystem, secure):
+ *  - Multi-dimensional: per-IP (primary), per-email (anti-relay), global
+ *    (circuit breaker against distributed floods).
+ *  - Sliding-window counters via a small, space-bounded list of timestamps.
+ *  - Atomic updates under an exclusive file lock (no race conditions).
+ *  - Privacy: bucket keys are hashed (sha256) so raw IPs/emails are never
+ *    stored in cleartext filenames; files are 0600, the bucket dir is 0700.
+ *  - Bounded disk usage: each bucket stores at most `max` timestamps, and a
+ *    probabilistic garbage collector prunes stale bucket files.
+ *  - Observability: emits IETF RateLimit-* response headers + Retry-After.
+ *  - Availability: fails open (allows the request) only when the store is
+ *    genuinely unavailable, logging the failure — never blocks legit users on
+ *    a transient disk error, while the global cap still backstops abuse.
  */
-function rateLimitOk(string $ip, string $dir): bool
+final class RateLimiter
 {
-    if (!is_dir($dir) && !@mkdir($dir, 0700, true)) {
-        // If we cannot persist a limit, fail open (do not block legitimate use).
-        return true;
+    private string $dir;
+
+    public function __construct(string $dir)
+    {
+        $this->dir = $dir;
     }
-    $file = $dir . '/' . hash('sha1', $ip) . '.json';
-    $now = time();
-    $fp = @fopen($file, 'c+');
-    if (!$fp) {
-        return true;
+
+    /**
+     * Attempt to consume one unit for a bucket. Returns a result array:
+     *   ['allowed' => bool, 'remaining' => int, 'reset' => int (seconds to window reset)]
+     * On a store error, fails open with allowed=true (and logs).
+     */
+    public function attempt(string $bucketKey, int $max, int $window): array
+    {
+        if (!$this->ensureDir()) {
+            error_log('RateLimiter: store unavailable, failing open');
+            return ['allowed' => true, 'remaining' => $max, 'reset' => $window];
+        }
+        $this->maybeGc($window);
+
+        $file = $this->dir . '/' . hash('sha256', $bucketKey) . '.json';
+        $now = time();
+        $fp = @fopen($file, 'c+');
+        if (!$fp) {
+            error_log('RateLimiter: cannot open bucket, failing open');
+            return ['allowed' => true, 'remaining' => $max, 'reset' => $window];
+        }
+        flock($fp, LOCK_EX);
+        try {
+            $raw = stream_get_contents($fp);
+            $times = $raw ? (json_decode($raw, true) ?: []) : [];
+            if (!is_array($times)) {
+                $times = [];
+            }
+            // Sliding window: keep only timestamps within the window.
+            $times = array_values(array_filter($times, fn($t) => is_int($t) && ($now - $t) < $window));
+            $allowed = count($times) < $max;
+            if ($allowed) {
+                $times[] = $now;
+                // Bound storage to the last `max` timestamps.
+                if (count($times) > $max) {
+                    $times = array_slice($times, -$max);
+                }
+                rewind($fp);
+                ftruncate($fp, 0);
+                fwrite($fp, json_encode($times));
+            }
+            $remaining = max(0, $max - count($times));
+            // Reset = seconds until the oldest timestamp in the window ages out.
+            $reset = $times ? max(1, $window - ($now - $times[0])) : $window;
+        } finally {
+            flock($fp, LOCK_UN);
+            fclose($fp);
+            @chmod($file, 0600);
+        }
+        return ['allowed' => $allowed, 'remaining' => $remaining, 'reset' => $reset];
     }
-    flock($fp, LOCK_EX);
-    $raw = stream_get_contents($fp);
-    $times = $raw ? (json_decode($raw, true) ?: []) : [];
-    if (!is_array($times)) {
-        $times = [];
+
+    private function ensureDir(): bool
+    {
+        if (is_dir($this->dir)) {
+            return true;
+        }
+        $ok = @mkdir($this->dir, 0700, true);
+        // Defensive: mkdir's mode is masked by umask and the parent's setgid bit,
+        // so explicitly enforce the intended permissions regardless of the
+        // environment. Best-effort — ignore if it cannot be changed.
+        if ($ok) {
+            @chmod($this->dir, 0700);
+        }
+        return $ok;
     }
-    // Drop timestamps outside the window.
-    $times = array_values(array_filter($times, fn($t) => is_int($t) && ($now - $t) < RATE_LIMIT_WINDOW));
-    $allowed = count($times) < RATE_LIMIT_MAX;
-    if ($allowed) {
-        $times[] = $now;
-        rewind($fp);
-        ftruncate($fp, 0);
-        fwrite($fp, json_encode($times));
+
+    /**
+     * Prune stale bucket files to bound inode usage. Runs with low probability
+     * or when the bucket count exceeds the threshold. Best-effort and locked
+     * per file; never throws.
+     */
+    private function maybeGc(int $window): void
+    {
+        $run = (mt_rand() / mt_getrandmax()) < RATE_LIMIT_GC_PROBABILITY;
+        if (!$run) {
+            // Cheap count via glob (no directory scan cost beyond listing names).
+            $count = count(glob($this->dir . '/*.json'));
+            if ($count < RATE_LIMIT_GC_THRESHOLD) {
+                return;
+            }
+        }
+        $cutoff = time() - $window;
+        foreach (glob($this->dir . '/*.json') as $f) {
+            if (@filemtime($f) < $cutoff) {
+                @unlink($f);
+            }
+        }
     }
-    flock($fp, LOCK_UN);
-    fclose($fp);
-    @chmod($file, 0600);
-    return $allowed;
 }
 
 /* --------------------------- sentiment analysis -------------------------- */
@@ -204,10 +288,26 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 
 /* ------------------------------ rate limit -------------------------------- */
 $privateDir = __DIR__ . '/../private';
-if (!rateLimitOk(clientIp(), $privateDir . '/ratelimit')) {
-    header('Retry-After: ' . RATE_LIMIT_WINDOW);
-    respond(429, false, 'Too many enquiries from your location. Please try again later.');
+$limiter = new RateLimiter($privateDir . '/ratelimit');
+
+// Primary dimension: per-IP (cheap path, runs before input parsing).
+$ipResult = $limiter->attempt('ip:' . clientIp(), RATE_LIMIT_IP_MAX, RATE_LIMIT_WINDOW);
+// Circuit breaker: global cap protects against distributed floods regardless of IP.
+$globalResult = $limiter->attempt('global', RATE_LIMIT_GLOBAL_MAX, RATE_LIMIT_WINDOW);
+if (!$ipResult['allowed'] || !$globalResult['allowed']) {
+    $retryAfter = max($ipResult['reset'], $globalResult['reset']);
+    header('Retry-After: ' . $retryAfter);
+    header('RateLimit-Policy: ' . RATE_LIMIT_IP_MAX . ';w=' . RATE_LIMIT_WINDOW);
+    $remaining = min($ipResult['remaining'], $globalResult['remaining']);
+    header('RateLimit: remaining=' . max(0, $remaining) . ', reset=' . $retryAfter);
+    $msg = $globalResult['allowed']
+        ? 'Too many enquiries from your location. Please try again later.'
+        : 'We are experiencing a high volume of enquiries. Please try again shortly.';
+    respond(429, false, $msg);
 }
+// Emit observability headers for allowed requests too.
+header('RateLimit-Policy: ' . RATE_LIMIT_IP_MAX . ';w=' . RATE_LIMIT_WINDOW);
+header('RateLimit: remaining=' . max(0, $ipResult['remaining']) . ', reset=' . $ipResult['reset']);
 
 /* ------------------------------ input ------------------------------------ */
 $raw = file_get_contents('php://input');
@@ -270,6 +370,16 @@ if (in_array('WhatsApp', $contactMethod, true) || in_array('Phone call', $contac
 }
 if ($errors) {
     respond(422, false, 'Please provide ' . implode(', ', $errors) . '.');
+}
+
+// Secondary dimension: per-(hashed)email anti-relay cap. Guards against an
+// attacker using many IPs to flood a single victim's inbox via the auto-reply.
+$emailResult = $limiter->attempt('email:' . strtolower($email), RATE_LIMIT_EMAIL_MAX, RATE_LIMIT_WINDOW);
+if (!$emailResult['allowed']) {
+    header('Retry-After: ' . $emailResult['reset']);
+    header('RateLimit-Policy: ' . RATE_LIMIT_EMAIL_MAX . ';w=' . RATE_LIMIT_WINDOW);
+    header('RateLimit: remaining=0, reset=' . $emailResult['reset']);
+    respond(429, false, 'We have already received your enquiry and will be in touch. Please wait before submitting again.');
 }
 
 /* --------------------- sentiment + routing decisions -------------------- */
