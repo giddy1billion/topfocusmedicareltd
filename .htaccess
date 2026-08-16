@@ -1,0 +1,45 @@
+# Top Focus Medicare Limited — site-wide Apache hardening (Alwaysdata / Apache 2.4)
+# Safe to ship to the document root; degrades gracefully on older configs.
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  # Force HTTPS (Alwaysdata terminates TLS at the edge; REMOTE_HTTPS / X-Forwarded-Proto).
+  RewriteCond %{HTTPS} off
+  RewriteCond %{HTTP:X-Forwarded-Proto} !=https
+  RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
+</IfModule>
+
+# Security headers
+<IfModule mod_headers.c>
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set X-Frame-Options "DENY"
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+  Header always set Permissions-Policy "geolocation=(), microphone=(), camera=()"
+  # HSTS only after HTTPS is confirmed; respect Alwaysdata TLS edge.
+  Header always set Strict-Transport-Security "max-age=15768000; includeSubDomains"
+  # CSP: inline styles/scripts allowed (single-page site), data: images for the
+  # base64 logo, same-origin fetch/XHR to the API, no frames, no mixed content.
+  Header always set Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+</IfModule>
+
+# Disable directory listings.
+Options -Indexes
+
+# Block dotfiles and the private data store from the web.
+<FilesMatch "(^\.|\.(bak|inc|sql|log|jsonl)$)">
+  <IfModule mod_authz_core.c>
+    Require all denied
+  </IfModule>
+  <IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+  </IfModule>
+</FilesMatch>
+
+# Serve index.html as the directory index.
+DirectoryIndex index.html
+
+# Default character encoding.
+AddDefaultCharset utf-8
+
+# Mime types for the API directory are handled by PHP; keep default handlers.

@@ -1,6 +1,7 @@
-# Persisted enquiry submissions (patient PII) — keep out of version control.
-private/enquiries.jsonl
+# Persisted enquiry/callback data (patient PII) — keep out of version control.
+private/*.jsonl
 private/*.log
+private/ratelimit/
 
 # Editor / OS noise
 .DS_Store
