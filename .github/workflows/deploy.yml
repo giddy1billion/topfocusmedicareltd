@@ -67,7 +67,7 @@ jobs:
             chmod 600 private/enquiries.jsonl private/callbacks.jsonl private/.htaccess 2>/dev/null || true
             chmod 600 .htaccess 2>/dev/null || true
             # Site assets readable by the web server; directories traversable.
-            chmod 644 index.html api/enquiry.php 2>/dev/null || true
+            chmod 644 index.html logo.jpg api/enquiry.php 2>/dev/null || true
             chmod 755 api 2>/dev/null || true
             # Clear any stale rate-limit state on deploy (optional; comment out to keep).
             find private/ratelimit -type f -delete 2>/dev/null || true

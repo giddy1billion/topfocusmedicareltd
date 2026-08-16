@@ -43,6 +43,8 @@ const DEFAULT_MAIL_FROM = 'no-reply@topfocusmedicareltd.com.ng';
 // TODO: replace with the real clinic WhatsApp number or set CLINIC_WHATSAPP.
 const DEFAULT_CLINIC_WHATSAPP = '2348000000000';
 const DEFAULT_ALLOWED_ORIGINS = 'https://topfocusmedicareltd.com.ng,https://www.topfocusmedicareltd.com.ng';
+// Public base URL of the deployed site — used for the hosted logo in branded emails.
+const DEFAULT_BASE_URL = 'https://topfocusmedicareltd.com.ng';
 
 const MAX_INPUT_BYTES = 20480;     // reject request bodies larger than 20 KB
 const RATE_LIMIT_WINDOW = 600;     // 10 minutes
@@ -52,6 +54,8 @@ $clinicEmails = array_values(array_filter(array_map('trim', explode(',', (string
 $mailFrom = getenv('MAIL_FROM') ?: DEFAULT_MAIL_FROM;
 $clinicWhatsapp = preg_replace('/\D+/', '', (string)(getenv('CLINIC_WHATSAPP') ?: DEFAULT_CLINIC_WHATSAPP));
 $allowedOrigins = array_values(array_filter(array_map('trim', explode(',', (string)(getenv('ALLOWED_ORIGINS') ?: DEFAULT_ALLOWED_ORIGINS)))));
+// Normalise the base URL (no trailing slash) for building absolute asset URLs.
+$baseUrl = rtrim((string)(getenv('BASE_URL') ?: DEFAULT_BASE_URL), '/');
 
 /* --------------------------- helpers ------------------------------------- */
 function respond(int $code, bool $ok, string $message, array $extra = []): void
@@ -345,6 +349,132 @@ if ($callbackRequested) {
     appendRecord($privateDir . '/callbacks.jsonl', json_encode($callback, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
 }
 
+/* ------------------ branded cross-platform email templates ---------------- */
+/**
+ * Escape a value for safe inclusion in HTML email bodies. Every piece of
+ * user-supplied content rendered into the HTML part is passed through this to
+ * prevent HTML/script injection inside the email (and downstream clients).
+ */
+function esc(string $v): string
+{
+    return htmlspecialchars($v, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+}
+
+/**
+ * Build a branded, cross-platform HTML email. Uses table-based layout with
+ * inline styles and bgcolor fallbacks so it renders in Outlook (Word engine),
+ * Gmail, Apple Mail, Yahoo and mobile clients. The dark brand header carries
+ * the logo image (with alt-text fallback) and a red accent line; the body is a
+ * white card for readability. Returns a complete HTML document string.
+ *
+ * @param string $preheader  Short summary shown in inbox preview text.
+ * @param string $heading    Card heading line (already-safe text).
+ * @param string $bodyHtml   Inner HTML content (rows built by emailRow/emailCta).
+ */
+function renderEmailHtml(string $baseUrl, string $preheader, string $heading, string $bodyHtml): string
+{
+    $logo = esc($baseUrl . '/logo.jpg');
+    $pre = esc($preheader);
+    $h = $heading; // heading passed pre-escaped by caller
+    // Brand palette (matches the site): dark navy, red accent, cyan, off-white.
+    return '<!DOCTYPE html>'
+        . '<html lang="en"><head><meta charset="utf-8">'
+        . '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        . '<meta http-equiv="Content-Type" content="text/html; charset=utf-8">'
+        . '<title>' . $h . '</title></head>'
+        . '<body style="margin:0;padding:0;background-color:#e8eef1;font-family:Arial,Helvetica,sans-serif;">'
+        // Preheader (hidden preview text) — widely supported.
+        . '<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">' . $pre . '</div>'
+        . '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#e8eef1;padding:24px 0;">'
+        . '<tr><td align="center">'
+        // Outlook fixed-width container.
+        . '<!--[if mso]><table role="presentation" width="600" cellpadding="0" cellspacing="0"><tr><td><![endif]-->'
+        . '<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:600px;margin:0 auto;background-color:#ffffff;border-radius:10px;overflow:hidden;box-shadow:0 2px 8px rgba(7,19,27,.12);">'
+        // --- Brand header ---
+        . '<tr><td style="background-color:#0a1821;padding:0;">'
+        . '<table role="presentation" width="100%" cellpadding="0" cellspacing="0">'
+        . '<tr><td height="4" style="line-height:4px;font-size:4px;background-color:#ef2638;">&nbsp;</td></tr>'
+        . '<tr><td style="padding:20px 28px;">'
+        . '<img src="' . $logo . '" alt="Top Focus Medicare Limited" width="168" style="display:block;border:0;max-width:168px;height:auto;" />'
+        . '</td></tr></table></td></tr>'
+        // --- Body card ---
+        . '<tr><td style="padding:30px 28px 10px 28px;">'
+        . '<h1 style="margin:0 0 18px 0;font-size:20px;line-height:26px;color:#0a1821;font-weight:bold;">' . $h . '</h1>'
+        . $bodyHtml
+        . '</td></tr>'
+        // --- Footer ---
+        . '<tr><td style="padding:18px 28px 28px 28px;border-top:1px solid #e3e9ec;">'
+        . '<p style="margin:0 0 6px 0;font-size:13px;line-height:18px;color:#1f6386;font-weight:bold;">Top Focus Medicare Limited</p>'
+        . '<p style="margin:0;font-size:12px;line-height:17px;color:#6b7d86;">Caring for you and your family &middot; topfocusmedicareltd.com.ng</p>'
+        . '<p style="margin:6px 0 0 0;font-size:11px;line-height:16px;color:#93a3ac;">This message was generated by the website enquiry form. If you did not expect it, you may safely ignore it.</p>'
+        . '</td></tr>'
+        . '</table>'
+        . '<!--[if mso]></td></tr></table><![endif]-->'
+        . '</td></tr></table>'
+        . '</body></html>';
+}
+
+/** A labelled detail row inside the email card (label + value), HTML-safe. */
+function emailRow(string $label, string $value): string
+{
+    return '<p style="margin:0 0 12px 0;font-size:14px;line-height:20px;color:#1a2b34;">'
+        . '<span style="color:#1f6386;font-weight:bold;">' . esc($label) . ': </span>'
+        . esc($value) . '</p>';
+}
+
+/** A block of wrapped text (e.g. the patient message), HTML-safe. */
+function emailBlock(string $label, string $value): string
+{
+    return '<p style="margin:0 0 14px 0;font-size:14px;line-height:20px;color:#1a2b34;">'
+        . '<span style="color:#1f6386;font-weight:bold;">' . esc($label) . '</span></p>'
+        . '<p style="margin:0 0 18px 0;padding:12px 14px;background-color:#f4f7f9;border-left:3px solid #2f86ad;border-radius:4px;font-size:14px;line-height:21px;color:#1a2b34;white-space:pre-wrap;">'
+        . esc($value) . '</p>';
+}
+
+/** A call-to-action button (bulletproof table-based, works in Outlook). */
+function emailCta(string $url, string $label, string $bg = '#ef2638'): string
+{
+    $u = esc($url);
+    $l = esc($label);
+    $b = esc($bg);
+    return '<table role="presentation" cellpadding="0" cellspacing="0" style="margin:6px 0 18px 0;border-radius:6px;overflow:hidden;">'
+        . '<tr><td align="center" bgcolor="' . $b . '" style="background-color:' . $b . ';border-radius:6px;">'
+        . '<a href="' . $u . '" target="_blank" style="display:inline-block;padding:13px 26px;font-family:Arial,Helvetica,sans-serif;font-size:15px;font-weight:bold;color:#ffffff;text-decoration:none;border-radius:6px;">'
+        . $l . '</a></td></tr></table>';
+}
+
+/**
+ * Assemble a multipart/alternative MIME message (plain text + HTML) suitable
+ * for PHP mail(). Returns ['headers' => string, 'body' => string]; the caller
+ * merges the returned headers into its From/Reply-To headers and passes the
+ * body as the message argument.
+ */
+function buildMultipart(string $textPart, string $htmlPart): array
+{
+    $boundary = 'b_' . bin2hex(random_bytes(12));
+    $headers = "MIME-Version: 1.0\r\n"
+        . "Content-Type: multipart/alternative; boundary=\"{$boundary}\"";
+    $eol = "\r\n";
+    $body = "--{$boundary}{$eol}"
+        . "Content-Type: text/plain; charset=utf-8{$eol}"
+        . "Content-Transfer-Encoding: 8bit{$eol}{$eol}"
+        . $textPart . $eol
+        . "--{$boundary}{$eol}"
+        . "Content-Type: text/html; charset=utf-8{$eol}"
+        . "Content-Transfer-Encoding: 8bit{$eol}{$eol}"
+        . $htmlPart . $eol
+        . "--{$boundary}--{$eol}";
+    return ['headers' => $headers, 'body' => $body];
+}
+
+/** Encode a subject line for safe transport of non-ASCII characters. */
+function encodeSubject(string $subject): string
+{
+    return function_exists('mb_encode_mimeheader')
+        ? mb_encode_mimeheader($subject, 'UTF-8', 'Q', "\r\n")
+        : $subject;
+}
+
 /* --------------------- bidirectional email dispatch ---------------------- */
 $userEmailSent = false;
 $adminEmailSent = 0;
@@ -355,8 +485,11 @@ $methodList = $contactMethod ? implode(', ', $contactMethod) : 'None selected';
 $safeMailFrom = sanitizeHeaderField($mailFrom);
 
 // --- Admin notification (all clinic inboxes) ---
-$adminSubject = sprintf('[%s] New enquiry from %s (%s)', strtoupper($sentiment['label']), $name, $record['id']);
-$adminBody = "New enquiry received via the website.\n\n"
+$adminSubjectRaw = sprintf('[%s] New enquiry from %s (%s)', strtoupper($sentiment['label']), $name, $record['id']);
+$adminSubject = sanitizeHeaderField(encodeSubject($adminSubjectRaw));
+
+// Plain-text alternative for the admin email.
+$adminText = "New enquiry received via the website.\n\n"
     . "Reference: {$record['id']}\n"
     . "Received: {$record['received_at']}\n"
     . "Sentiment: {$sentiment['label']} (score {$sentiment['score']}; +{$sentiment['positive_hits']}/-{$sentiment['negative_hits']})\n\n"
@@ -368,18 +501,41 @@ $adminBody = "New enquiry received via the website.\n\n"
     . "Callback requested: " . ($callbackRequested ? 'YES — call the patient back ASAP' : 'no') . "\n\n"
     . "Message:\n{$message}\n";
 if ($whatsappLink) {
-    $adminBody .= "\nWhatsApp chat link (patient will also receive this): {$whatsappLink}\n";
+    $adminText .= "\nWhatsApp chat link (patient will also receive this):\n{$whatsappLink}\n";
 }
-// adminSubject is header-bound; strip any stray control chars.
-$adminSubject = sanitizeHeaderField($adminSubject);
+
+// Branded HTML alternative for the admin email.
+$sentimentBadge = match ($sentiment['label']) {
+    'positive' => '<span style="display:inline-block;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:bold;color:#ffffff;background-color:#1f8a4c;">POSITIVE</span>',
+    'negative' => '<span style="display:inline-block;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:bold;color:#ffffff;background-color:#c0271f;">NEGATIVE</span>',
+    default => '<span style="display:inline-block;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:bold;color:#ffffff;background-color:#6b7d86;">NEUTRAL</span>',
+};
+$adminBodyHtml = '<p style="margin:0 0 16px 0;font-size:14px;line-height:20px;color:#1a2b34;">A new enquiry was received via the website. ' . $sentimentBadge . '</p>'
+    . emailRow('Reference', $record['id'])
+    . emailRow('Received', $record['received_at'])
+    . emailRow('Sentiment', $sentiment['label'] . " (score {$sentiment['score']}; +{$sentiment['positive_hits']}/-{$sentiment['negative_hits']})")
+    . emailRow('Name', $name)
+    . emailRow('Email', $email)
+    . emailRow('Phone', $phone !== '' ? $phone : '—')
+    . emailRow('Services', $servicesList)
+    . emailRow('Preferred contact', $methodList)
+    . emailRow('Callback requested', $callbackRequested ? 'YES — call the patient back ASAP' : 'no')
+    . emailBlock('Message', $message);
+if ($whatsappLink) {
+    $adminBodyHtml .= emailCta($whatsappLink, 'Open WhatsApp chat →', '#25d366')
+        . '<p style="margin:0 0 4px 0;font-size:12px;line-height:17px;color:#6b7d86;">The patient will also receive this link.</p>';
+}
+$adminHtml = renderEmailHtml($baseUrl, 'New enquiry from ' . $name, 'New enquiry received', $adminBodyHtml);
+
+$adminMultipart = buildMultipart($adminText, $adminHtml);
 $adminHeaders = "From: " . SITE_NAME . " <{$safeMailFrom}>\r\n"
     . "Reply-To: {$name} <{$email}>\r\n"
-    . "Content-Type: text/plain; charset=utf-8\r\n";
+    . $adminMultipart['headers'] . "\r\n";
 if (function_exists('mail')) {
     foreach ($clinicEmails as $inbox) {
         $inbox = sanitizeHeaderField($inbox);
         if ($inbox !== '' && filter_var($inbox, FILTER_VALIDATE_EMAIL)) {
-            if (@mail($inbox, $adminSubject, $adminBody, $adminHeaders)) {
+            if (@mail($inbox, $adminSubject, $adminMultipart['body'], $adminHeaders)) {
                 $adminEmailSent++;
             }
         }
@@ -389,31 +545,55 @@ if (function_exists('mail')) {
 // --- User confirmation (auto-reply, distinct content) ---
 if ($sendUserEmail) {
     $firstName = explode(' ', $name)[0];
-    $userSubject = 'We received your enquiry — ' . SITE_NAME;
-    $userBody = "Hi {$firstName},\n\n"
+    $userSubjectRaw = 'We received your enquiry — ' . SITE_NAME;
+    $userSubject = sanitizeHeaderField(encodeSubject($userSubjectRaw));
+
+    // Plain-text alternative for the user email.
+    $userText = "Hi {$firstName},\n\n"
         . "Thank you for reaching out to " . SITE_NAME . ". We have received your enquiry and our care team will follow up shortly.\n\n"
         . "Your reference: {$record['id']}\n"
         . "Services you asked about: {$servicesList}\n\n";
     if ($wantsWhatsapp && $whatsappLink) {
-        $userBody .= "You asked to be contacted on WhatsApp. Tap the link below to start the conversation with us now:\n"
+        $userText .= "You asked to be contacted on WhatsApp. Tap the link below to start the conversation with us now:\n"
             . "{$whatsappLink}\n\n";
     }
     if ($wantsCall) {
-        $userBody .= "You requested a phone call. A member of our team will call you back on {$phone} as soon as possible.\n\n";
+        $userText .= "You requested a phone call. A member of our team will call you back on {$phone} as soon as possible.\n\n";
     }
     if ($wantsEmail) {
-        $userBody .= "You'll also receive further updates by email.\n\n";
+        $userText .= "You'll also receive further updates by email.\n\n";
     }
-    $userBody .= "Your message to us:\n\"{$message}\"\n\n"
+    $userText .= "Your message to us:\n\"{$message}\"\n\n"
         . "If you did not submit this enquiry, please ignore this email.\n\n"
         . "Caring for you,\n"
         . SITE_NAME . "\n";
-    $userSubject = sanitizeHeaderField($userSubject);
+
+    // Branded HTML alternative for the user email.
+    $userBodyHtml = '<p style="margin:0 0 16px 0;font-size:15px;line-height:22px;color:#1a2b34;">Hi ' . esc($firstName) . ',</p>'
+        . '<p style="margin:0 0 16px 0;font-size:15px;line-height:22px;color:#1a2b34;">Thank you for reaching out to <strong style="color:#0a1821;">Top Focus Medicare Limited</strong>. We have received your enquiry and our care team will follow up shortly.</p>'
+        . emailRow('Your reference', $record['id'])
+        . emailRow('Services you asked about', $servicesList);
+    if ($wantsWhatsapp && $whatsappLink) {
+        $userBodyHtml .= '<p style="margin:18px 0 6px 0;font-size:14px;line-height:20px;color:#1a2b34;">You asked to be contacted on WhatsApp. Tap the button below to start the conversation with us now:</p>'
+            . emailCta($whatsappLink, 'Open WhatsApp chat →', '#25d366');
+    }
+    if ($wantsCall) {
+        $userBodyHtml .= '<p style="margin:14px 0 6px 0;font-size:14px;line-height:20px;color:#1a2b34;">You requested a phone call. A member of our team will call you back on <strong style="color:#0a1821;">' . esc($phone) . '</strong> as soon as possible.</p>';
+    }
+    if ($wantsEmail) {
+        $userBodyHtml .= '<p style="margin:14px 0 6px 0;font-size:14px;line-height:20px;color:#1a2b34;">You&rsquo;ll also receive further updates by email.</p>';
+    }
+    $userBodyHtml .= emailBlock('Your message to us', $message)
+        . '<p style="margin:18px 0 6px 0;font-size:13px;line-height:18px;color:#6b7d86;">If you did not submit this enquiry, please ignore this email.</p>'
+        . '<p style="margin:0;font-size:14px;line-height:20px;color:#1a2b34;">Caring for you,<br /><strong style="color:#0a1821;">Top Focus Medicare Limited</strong></p>';
+    $userHtml = renderEmailHtml($baseUrl, 'Your enquiry to Top Focus Medicare Limited has been received', 'We received your enquiry', $userBodyHtml);
+
+    $userMultipart = buildMultipart($userText, $userHtml);
     $userHeaders = "From: " . SITE_NAME . " <{$safeMailFrom}>\r\n"
         . "Reply-To: " . sanitizeHeaderField($clinicEmails[0] ?? '') . "\r\n"
-        . "Content-Type: text/plain; charset=utf-8\r\n";
+        . $userMultipart['headers'] . "\r\n";
     if (function_exists('mail')) {
-        $userEmailSent = @mail($email, $userSubject, $userBody, $userHeaders);
+        $userEmailSent = @mail($email, $userSubject, $userMultipart['body'], $userHeaders);
     }
 }
 
