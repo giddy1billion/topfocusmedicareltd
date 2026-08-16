@@ -105,9 +105,32 @@ h2{font-size:clamp(2.3rem,4vw,4.2rem);line-height:1.02;letter-spacing:-.045em;ma
 .team-note{margin-top:18px;color:#758d97;font-size:.82rem}
 .contact{padding:42px;display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:center;background:linear-gradient(135deg,rgba(31,99,134,.23),rgba(255,255,255,.05));overflow:hidden;position:relative}
 .contact:after{content:"";position:absolute;width:360px;height:360px;border-radius:50%;right:-180px;top:-180px;background:rgba(239,38,56,.1)}
-.contact p{color:#abc0c8}.contact-form{display:grid;gap:11px;position:relative;z-index:1}
-input,textarea{width:100%;border:1px solid var(--line);background:rgba(0,0,0,.2);border-radius:13px;padding:14px 15px;color:white;outline:none;font:inherit}
-textarea{min-height:120px;resize:vertical}input:focus,textarea:focus{border-color:rgba(114,200,223,.55)}
+.contact p{color:#abc0c8}.contact-form{display:grid;gap:13px;position:relative;z-index:1}
+input,textarea,select{width:100%;border:1px solid var(--line);background:rgba(0,0,0,.2);border-radius:13px;padding:14px 15px;color:white;outline:none;font:inherit}
+textarea{min-height:120px;resize:vertical}input:focus,textarea:focus,select:focus{border-color:rgba(114,200,223,.55)}
+select option{background:#0a1821;color:white}
+fieldset{border:1px solid var(--line);border-radius:15px;padding:14px 16px;margin:0;background:rgba(0,0,0,.12)}
+legend{font-size:.74rem;text-transform:uppercase;letter-spacing:.1em;color:#8fa7b1;font-weight:800;padding:0 6px}
+.check-group{display:grid;grid-template-columns:1fr 1fr;gap:8px 14px;margin-top:8px}
+.check-pill{display:flex;align-items:center;gap:9px;padding:9px 11px;border:1px solid var(--line);border-radius:12px;cursor:pointer;font-size:.88rem;color:#c2d3da;transition:.2s;background:rgba(0,0,0,.15)}
+.check-pill:hover{border-color:rgba(114,200,223,.4)}
+.check-pill input{width:auto;accent-color:var(--blue-2)}
+.check-pill input:checked + span{color:#fff}
+.check-pill:has(input:checked){border-color:rgba(114,200,223,.55);background:rgba(31,99,134,.22)}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:13px}
+.btn[disabled]{opacity:.6;cursor:not-allowed;transform:none}
+.form-note{font-size:.76rem;color:#7e949e;line-height:1.5}
+#notice{font-size:.9rem;font-weight:700;min-height:1.2em}
+#notice.ok{color:#6ee0a0}#notice.err{color:var(--red-soft)}
+#nextSteps{display:grid;gap:10px;margin-top:4px}
+#nextSteps:empty{display:none}
+.result-card{border:1px solid var(--line);border-radius:14px;padding:14px 16px;background:rgba(31,99,134,.14);font-size:.9rem;color:#bcd2da;display:flex;gap:12px;align-items:center}
+.result-card .ic{width:34px;height:34px;flex:0 0 34px;border-radius:10px;display:grid;place-items:center;font-weight:900;background:rgba(114,200,223,.16);border:1px solid rgba(114,200,223,.22);color:#8bd7ec}
+.result-card a.btn{flex:0 0 auto;padding:9px 14px;font-size:.85rem}
+.badge{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-size:.72rem;font-weight:900;text-transform:uppercase;letter-spacing:.08em;border:1px solid var(--line)}
+.badge.positive{color:#6ee0a0;border-color:rgba(110,224,160,.4);background:rgba(110,224,160,.1)}
+.badge.negative{color:var(--red-soft);border-color:rgba(255,82,96,.4);background:rgba(255,82,96,.1)}
+.badge.neutral{color:#9fb3bc;border-color:rgba(159,179,188,.4);background:rgba(159,179,188,.1)}
 footer{padding:45px 0 60px;color:#738a94;font-size:.84rem}.footer-inner{display:flex;justify-content:space-between;gap:25px;align-items:center;border-top:1px solid var(--line);padding-top:25px}.footer-brand{color:#dce8ec;font-weight:800}
 .reveal{opacity:0;transform:translateY(18px);transition:.75s ease}.reveal.show{opacity:1;transform:none}
 .menu{display:none;background:none;border:1px solid var(--line);color:white;border-radius:11px;padding:8px 10px}
@@ -116,7 +139,7 @@ footer{padding:45px 0 60px;color:#738a94;font-size:.84rem}.footer-inner{display:
   .hero-grid,.about-grid,.contact{grid-template-columns:1fr}.hero{padding-top:130px}.hero-card{max-width:680px}.services{grid-template-columns:repeat(2,1fr)}.values{grid-template-columns:repeat(2,1fr)}.team{grid-template-columns:repeat(2,1fr)}
 }
 @media(max-width:600px){
-  .container{width:min(100% - 28px,1180px)}section{padding:78px 0}h1{font-size:3.4rem}.hero-copy{font-size:1rem}.services,.mv-grid,.goals,.team,.values{grid-template-columns:1fr}.about-main,.about-side,.mv,.contact{padding:26px}.logo-panel{height:220px}.card-meta{flex-direction:column}.footer-inner{align-items:flex-start;flex-direction:column}.brand img{width:160px}
+  .container{width:min(100% - 28px,1180px)}section{padding:78px 0}h1{font-size:3.4rem}.hero-copy{font-size:1rem}.services,.mv-grid,.goals,.team,.values{grid-template-columns:1fr}.about-main,.about-side,.mv,.contact{padding:26px}.logo-panel{height:220px}.card-meta{flex-direction:column}.footer-inner{align-items:flex-start;flex-direction:column}.brand img{width:160px}.form-row{grid-template-columns:1fr}.check-group{grid-template-columns:1fr}
 }
 </style>
 </head>
@@ -233,14 +256,42 @@ footer{padding:45px 0 60px;color:#738a94;font-size:.84rem}.footer-inner{display:
     <div>
       <div class="kicker">Start your care journey</div>
       <h2>Let's make your next healthcare decision a clearer one.</h2>
-      <p>Send an enquiry and the clinic team can follow up with you. This front-end form is ready to connect to your preferred booking or enquiry backend.</p>
+      <p>Send an enquiry and the clinic team will follow up with you through your preferred means of communication. Select one or more services you're interested in and we'll be in touch.</p>
+      <p class="form-note" style="margin-top:14px">Your details are only used to respond to your enquiry and are never shared with third parties.</p>
     </div>
-    <form class="contact-form" onsubmit="event.preventDefault();document.getElementById('notice').textContent='Thank you. Your enquiry has been captured in this demo interface.';this.reset()">
-      <input required name="name" placeholder="Full name" autocomplete="name">
-      <input required type="email" name="email" placeholder="Email address" autocomplete="email">
-      <textarea required name="message" placeholder="How can we help?"></textarea>
-      <button class="btn btn-primary" type="submit">Send enquiry ↗</button>
-      <small id="notice" style="color:#86a0aa"></small>
+    <form class="contact-form" id="enquiryForm" novalidate>
+      <input type="text" name="company" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0">
+      <div class="form-row">
+        <input required name="name" id="f-name" placeholder="Full name" autocomplete="name">
+        <input required type="email" name="email" id="f-email" placeholder="Email address" autocomplete="email">
+      </div>
+      <input type="tel" name="phone" id="f-phone" placeholder="Phone number (e.g. +234 ...)" autocomplete="tel">
+
+      <fieldset>
+        <legend>Services you're interested in (select any)</legend>
+        <div class="check-group">
+          <label class="check-pill"><input type="checkbox" name="services[]" value="General Healthcare"><span>General Healthcare</span></label>
+          <label class="check-pill"><input type="checkbox" name="services[]" value="Maternity Care"><span>Maternity Care</span></label>
+          <label class="check-pill"><input type="checkbox" name="services[]" value="Infertility Care"><span>Infertility Care</span></label>
+          <label class="check-pill"><input type="checkbox" name="services[]" value="Obstetrics"><span>Obstetrics</span></label>
+          <label class="check-pill"><input type="checkbox" name="services[]" value="Surgical Management"><span>Surgical Management</span></label>
+          <label class="check-pill"><input type="checkbox" name="services[]" value="Diagnostics & Laboratory"><span>Diagnostics &amp; Laboratory</span></label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Preferred means of communication (select any)</legend>
+        <div class="check-group">
+          <label class="check-pill"><input type="checkbox" name="contact_method[]" value="WhatsApp" data-needs-phone="1"><span>WhatsApp</span></label>
+          <label class="check-pill"><input type="checkbox" name="contact_method[]" value="Phone call" data-needs-phone="1"><span>Phone call</span></label>
+          <label class="check-pill"><input type="checkbox" name="contact_method[]" value="Email"><span>Email</span></label>
+        </div>
+      </fieldset>
+
+      <textarea required name="message" id="f-message" placeholder="How can we help?"></textarea>
+      <button class="btn btn-primary" type="submit" id="f-submit">Send enquiry ↗</button>
+      <small id="notice" role="status" aria-live="polite"></small>
+      <div id="nextSteps" aria-live="polite"></div>
     </form>
   </div>
 </div>
@@ -258,6 +309,111 @@ document.getElementById('year').textContent=new Date().getFullYear();
 const observer=new IntersectionObserver(entries=>entries.forEach(e=>{if(e.isIntersecting)e.target.classList.add('show')}),{threshold:.08});
 document.querySelectorAll('.reveal').forEach(el=>observer.observe(el));
 document.querySelectorAll('.nav-links a').forEach(a=>a.addEventListener('click',()=>document.getElementById('nav').classList.remove('open')));
+
+(function(){
+  const form=document.getElementById('enquiryForm');
+  if(!form)return;
+  const notice=document.getElementById('notice');
+  const nextSteps=document.getElementById('nextSteps');
+  const submit=document.getElementById('f-submit');
+  const phone=document.getElementById('f-phone');
+
+  const setNotice=(msg,type)=>{notice.textContent=msg;notice.className=type||'';};
+  const clearSteps=()=>{nextSteps.innerHTML='';};
+  const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+  const renderResult=(data,result)=>{
+    clearSteps();
+    const ns=result.next_steps||{};
+    const sentiment=result.sentiment||{};
+
+    // Sentiment badge reflects the tone of the submitted message.
+    if(sentiment.label){
+      const txt={positive:'Positive tone',negative:'Needs attention',neutral:'Neutral tone'}[sentiment.label]||'Analyzed';
+      const detail=sentiment.label==='negative'?' — our team will prioritise your enquiry.':'';
+      const badge=`<span class="badge ${esc(sentiment.label)}">${esc(txt)}</span>`;
+      const ref=result.reference?`<div style="margin-top:6px;color:#8fa7b1;font-size:.78rem">Ref: ${esc(result.reference)}</div>`:'';
+      const node=document.createElement('div');
+      node.className='result-card';
+      node.innerHTML=`<div class="ic">★</div><div>${badge} We analysed your message.${detail}${ref}</div>`;
+      nextSteps.appendChild(node);
+    }
+
+    // WhatsApp: direct the user to message the clinic number.
+    if(ns.whatsapp_link){
+      const node=document.createElement('div');
+      node.className='result-card';
+      node.innerHTML=`<div class="ic">✆</div><div>You chose WhatsApp. Message us directly to continue.<br><a class="btn btn-primary" href="${esc(ns.whatsapp_link)}" target="_blank" rel="noopener">Open WhatsApp chat ↗</a></div>`;
+      nextSteps.appendChild(node);
+    }
+
+    // Phone call: a callback request has been initialised from the form details.
+    if(ns.callback_requested){
+      const masked=ns.phone?('ending in '+esc(ns.phone.slice(-4))):'your number';
+      const node=document.createElement('div');
+      node.className='result-card';
+      node.innerHTML=`<div class="ic">☏</div><div>A callback request has been created. A member of our care team will call you on ${masked} as soon as possible.</div>`;
+      nextSteps.appendChild(node);
+    }
+
+    // Email: bidirectional confirmation status.
+    const emailNode=document.createElement('div');
+    const userOk=ns.email_sent_to_user?'A confirmation email is on its way to '+esc(data.email)+'.':'';
+    const adminOk=ns.email_sent_to_admin?'Our care team has been notified.':'';
+    if(userOk||adminOk){
+      emailNode.className='result-card';
+      emailNode.innerHTML=`<div class="ic">✉</div><div>${[userOk,adminOk].filter(Boolean).map(esc).join(' ')}</div>`;
+      nextSteps.appendChild(emailNode);
+    }
+  };
+
+  // Require a phone number when WhatsApp/Phone call is selected
+  form.querySelectorAll('input[data-needs-phone]').forEach(cb=>cb.addEventListener('change',()=>{
+    phone.required=[...form.querySelectorAll('input[data-needs-phone]:checked')].length>0;
+  }));
+
+  form.addEventListener('submit',async e=>{
+    e.preventDefault();
+    if(!form.checkValidity()){form.reportValidity();return;}
+    // Honeypot: silently succeed if filled (bot bait)
+    if(form.company.value){setNotice('Thank you. Your enquiry has been received.','ok');form.reset();return;}
+
+    const data={
+      name:form.name.value.trim(),
+      email:form.email.value.trim(),
+      phone:form.phone.value.trim(),
+      services:[...form.querySelectorAll('input[name="services[]"]:checked')].map(c=>c.value),
+      contact_method:[...form.querySelectorAll('input[name="contact_method[]"]:checked')].map(c=>c.value),
+      message:form.message.value.trim()
+    };
+
+    submit.disabled=true;
+    submit.textContent='Sending…';
+    setNotice('');
+    clearSteps();
+
+    try{
+      const res=await fetch('api/enquiry.php',{
+        method:'POST',
+        headers:{'Content-Type':'application/json','Accept':'application/json'},
+        body:JSON.stringify(data)
+      });
+      const result=await res.json().catch(()=>({}));
+      if(res.ok&&result.ok){
+        setNotice('Thank you, '+data.name.split(' ')[0]+'. Your enquiry has been received.','ok');
+        renderResult(data,result);
+        form.reset();
+      }else{
+        setNotice(result.message||'Sorry, something went wrong. Please try again or call us.','err');
+      }
+    }catch(err){
+      setNotice('Network error. Please check your connection and try again.','err');
+    }finally{
+      submit.disabled=false;
+      submit.textContent='Send enquiry ↗';
+    }
+  });
+})();
 </script>
 </body>
 </html>

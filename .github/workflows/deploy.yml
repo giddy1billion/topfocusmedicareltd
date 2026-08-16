@@ -1,0 +1,74 @@
+name: Deploy to Alwaysdata
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-alwaysdata
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy site via SSH
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        # Pinned to commit SHA for supply-chain integrity.
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Prepare deploy bundle
+        run: |
+          mkdir -p bundle
+          # Copy the site files (excluding repo/dev-only artefacts).
+          rsync -a \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='.gitignore' \
+            --exclude='bundle' \
+            --exclude='private/enquiries.jsonl' \
+            --exclude='private/callbacks.jsonl' \
+            --exclude='private/ratelimit' \
+            ./ bundle/
+
+      - name: Sync files to Alwaysdata
+        # Pinned to commit SHA for supply-chain integrity.
+        uses: appleboy/scp-action@917f8b81dfc1ccd331fef9e2d61bdc6c8be94634 # v0.1.7
+        with:
+          host: ${{ secrets.AD_SSH_HOST }}
+          port: ${{ secrets.AD_SSH_PORT || 22 }}
+          username: ${{ secrets.AD_SSH_USER }}
+          key: ${{ secrets.AD_SSH_KEY }}
+          passphrase: ${{ secrets.AD_SSH_PASSPHRASE }}
+          source: "bundle/*"
+          target: ${{ vars.AD_REMOTE_PATH || '/home/topfocusmedicareltd/www' }}
+          strip_components: 1
+          overwrite: true
+
+      - name: Ensure permissions on remote
+        # Pinned to commit SHA for supply-chain integrity.
+        uses: appleboy/ssh-action@029f5b4aeeeb58fdfe1410a5d17f967dacf36262 # v1.0.3
+        with:
+          host: ${{ secrets.AD_SSH_HOST }}
+          port: ${{ secrets.AD_SSH_PORT || 22 }}
+          username: ${{ secrets.AD_SSH_USER }}
+          key: ${{ secrets.AD_SSH_KEY }}
+          passphrase: ${{ secrets.AD_SSH_PASSPHRASE }}
+          script: |
+            REMOTE="${{ vars.AD_REMOTE_PATH || '/home/topfocusmedicareltd/www' }}"
+            cd "$REMOTE" || exit 1
+            mkdir -p private/ratelimit
+            # Lock down all PII: data dir and ratelimit dir owner-only.
+            chmod 700 private private/ratelimit
+            chmod 600 private/enquiries.jsonl private/callbacks.jsonl private/.htaccess 2>/dev/null || true
+            chmod 600 .htaccess 2>/dev/null || true
+            # Site assets readable by the web server; directories traversable.
+            chmod 644 index.html logo.jpg api/enquiry.php 2>/dev/null || true
+            chmod 755 api 2>/dev/null || true
+            # Clear any stale rate-limit state on deploy (optional; comment out to keep).
+            find private/ratelimit -type f -delete 2>/dev/null || true
+            echo "Deployed to $REMOTE at $(date)"
