@@ -357,6 +357,7 @@ if ($message === '' || safeStrlen($message) > 5000) {
 $allowedServices = [
     'General Healthcare', 'Maternity Care', 'Infertility Care',
     'Obstetrics', 'Surgical Management', 'Diagnostics & Laboratory',
+    'Training',
 ];
 $services = array_values(array_intersect($services, $allowedServices));
 

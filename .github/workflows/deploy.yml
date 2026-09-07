@@ -69,6 +69,8 @@ jobs:
             # Site assets readable by the web server; directories traversable.
             chmod 644 index.html logo.jpg api/enquiry.php 2>/dev/null || true
             chmod 755 api 2>/dev/null || true
+            chmod -R 755 assets 2>/dev/null || true
+            chmod 644 assets/images/* 2>/dev/null || true
             # Clear any stale rate-limit state on deploy (optional; comment out to keep).
             find private/ratelimit -type f -delete 2>/dev/null || true
             echo "Deployed to $REMOTE at $(date)"
